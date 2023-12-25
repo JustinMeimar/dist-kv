@@ -3,6 +3,9 @@ name = "dist-kv"
 version = "0.1.0"
 edition = "2021"
 
+[dependencies]
+serde_json = "1.0.108"
+
 [[bin]]
 name = "server"
 path = "src/server.rs"
