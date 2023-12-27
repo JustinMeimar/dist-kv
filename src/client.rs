@@ -1,41 +1,66 @@
 mod core;
+mod prtcl;
+use crate::prtcl::{Message, RegisterPayload};
 use crate::core::{Node};
 use std::io::Write;
-use std::net::{TcpStream, Ipv4Addr, SocketAddr};
+use std::net::{TcpStream, TcpListener, SocketAddr};
 use std::str::FromStr;
 use std::env;
 
-fn register_node(addr: Ipv4Addr, port: u16) -> std::io::Result<()>{
-    let socket_addr = SocketAddr::new(addr.into(), port);
 
-    let mut stream = match TcpStream::connect(socket_addr) {
+fn register_node(server_sock: SocketAddr, client_sock: SocketAddr) -> std::io::Result<()>{
+    
+    let mut stream = match TcpStream::connect(server_sock) {
         Ok(s) => s,
         Err(e) => return Err(e),
     };
 
-    stream.write_all(b"Hello, server").unwrap();
+    let reg_msg : Message<String, String> = 
+        Message::Register(RegisterPayload::new(client_sock.to_string()));
 
-    let node: Node<String, String> = Node::new(addr, port);
-    
+    let serialized_msg = serde_json::to_string(&reg_msg).unwrap();
+    stream.write_all(serialized_msg.as_bytes()).unwrap();
+
+    // stream.redad    
+
     Ok(())
 }
+
 fn main() {
 
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 { 
-        println!("usage: client <ip_addr>");
+    if args.len() < 3 {
+        println!("usage: ./client <server_ip:server_port> <client_ip:client_port>");
         std::process::exit(1);
     }
 
-    let ip = match Ipv4Addr::from_str(&args[1]) {
-        Ok(ip) => ip,
+    // Parse server address
+    let server_addr = match SocketAddr::from_str(&args[1]) {
+        Ok(addr) => addr,
         Err(e) => {
-            eprintln!("Failed to parse IPv4 address from {} with error: {}", args[1], e);
+            eprintln!("Failed to parse server address from {} with error: {}", args[1], e);
             std::process::exit(1); 
         }
     };
-
-    if let Err(e) = register_node(ip, 8080) {
+    let client_addr = match SocketAddr::from_str(&args[2]) {
+        Ok(addr) => addr,
+        Err(e) => {
+            eprintln!("Failed to parse client address from {} with error: {}", args[2], e);
+            std::process::exit(1);
+        }
+    };
+    
+    // Start client server
+    let listener = match TcpListener::bind(client_addr) {
+        Ok(listener) => listener,
+        Err(e) => {
+            eprintln!("Failed to bind to {}", client_addr);
+            std::process::exit(1);
+        }
+    };
+       
+    // register a new node
+    if let Err(e) = register_node(server_addr, client_addr) {
         eprintln!("Failed to register node: {}", e);
     }
 }

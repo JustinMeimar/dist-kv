@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::{IpAddr, Ipv4Addr, TcpListener, TcpStream};
+use serde::Deserialize;
 use std::io::{self, Read};
 
 pub struct Node<K, V> {
