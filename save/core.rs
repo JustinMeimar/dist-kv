@@ -42,4 +42,8 @@ where
             println!("{:?}:{:?}", key, value);
         }
     } 
+
+    pub fn spin(&self) {
+        
+    }
 }

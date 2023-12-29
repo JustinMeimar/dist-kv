@@ -1,44 +1,52 @@
-use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncReadExt, AsyncWriteExt, AsyncBufReadExt, BufWriter};
-use tokio::io::BufReader;
-use tokio::time::{self, Duration};
-use std::fs;
+use actix_web::{web, App, HttpServer, HttpResponse, Responder};
+use std::sync::Mutex;
+use std::collections::HashMap;
 
-async fn handle_connection(mut socket: TcpStream) {
-    let (reader, writer) = socket.split();
-    let mut reader = BufReader::new(reader);
-    let mut writer = BufWriter::new(writer);
+struct AppState {
+    store: Mutex<HashMap<String, String>>,
+}
 
-    if let Ok(Some(req_line)) = reader.lines().next_line().await {
-        let (status_line, filename) = match req_line.as_str() {
-            "GET / HTTP/1.1" => ("HTTP/1.1 200 OK", "public/ello.html"),
-            _ => ("HTTP/1.1 404 NOT FOUND", "public/404.html"),
-        };
-
-        println!("status_line: {}", status_line);
-
-        if let Ok(content) = fs::read_to_string(filename) {            
-            let http_response = format!(
-                "{}\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
-                status_line, content.len(), content
-            );
-
-            writer.write_all(http_response.as_bytes()).await.unwrap();
-            writer.flush().await.unwrap();  // Ensure buffer is flushed
-        }
-
+async fn get(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
+    let store = data.store.lock().unwrap();
+    match store.get(path.as_str()) {
+        Some(value) => HttpResponse::Ok().body(value.to_string()),
+        None => HttpResponse::NotFound().finish(),
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let listener = TcpListener::bind("localhost:3000").await?;
+async fn put(data: web::Data<AppState>, path: web::Path<String>, body: web::Bytes) -> impl Responder {
+    let mut store = data.store.lock().unwrap();
+    let key = path.into_inner();
+    let value = String::from_utf8(body.to_vec()).unwrap();
 
-    loop {
-        if let Ok((socket, _)) = listener.accept().await {
-            tokio::spawn(async move {
-                handle_connection(socket).await;
-            });
-        }
+    if store.contains_key(&key) {
+        HttpResponse::Forbidden().finish()
+    } else {
+        store.insert(key, value);
+        HttpResponse::Ok().finish()
     }
+}
+
+async fn delete(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
+    let mut store = data.store.lock().unwrap();
+    store.remove(path.as_str());
+    HttpResponse::Ok().finish()
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    let app_data = web::Data::new(AppState {
+        store: Mutex::new(HashMap::new()),
+    });
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(app_data.clone())
+            .route("/{key}", web::get().to(get))
+            .route("/{key}", web::put().to(put))
+            .route("/{key}", web::delete().to(delete))
+    })
+    .bind("localhost:3000")?
+    .run()
+    .await
 }
